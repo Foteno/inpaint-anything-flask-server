@@ -7,10 +7,13 @@ from pathlib import Path
 import numpy as np
 import ipdb
 from lama_inpaint import inpaint_img_with_lama
+import cv2
 
 app = Flask(__name__)
 images = {}
-samPredictor = None
+sam_predictor = None
+small_prefix = "small_"
+dilated_prefix = "dilated_"
 
 out_dir = Path("./temporary")
 out_dir.mkdir(parents=True, exist_ok=True)
@@ -19,7 +22,6 @@ image_path = "image.png"
 lama_config = "./lama/configs/prediction/default.yaml"
 lama_ckpt = "./pretrained_models/big-lama"
 
-
 @app.route('/')
 def index():
     return 'Hello, World!'
@@ -27,39 +29,43 @@ def index():
 @app.route('/post-point-sam', methods=['POST'])
 def post_point_sam():
     
-    image_paths = []
+    image_filenames = []
     image_file = request.files.get('image')
     coord_x = request.args['coord_x']
     coord_y = request.args['coord_y']
-
-    print(coord_x)
-    print(image_file)
 
     # Read the image file and perform processing
     image = load_img_to_array(image_file)
     save_array_to_img(image, out_dir / "image.png")
 
-    samPredictor.set_image(image)
+    sam_predictor.set_image(image)
     start_time = time.perf_counter()
     
-    masks, scores, logits = predict_sam(samPredictor, float(coord_x), float(coord_y))
+    masks, scores, logits = predict_sam(sam_predictor, float(coord_x), float(coord_y))
 
     end_time = time.perf_counter()
     latency = (end_time - start_time) 
     print("Segmentation latency: %.5f seconds" % latency)
 
+    dilate_seize = 15
     for idx, mask in enumerate(masks):
         mask_p = out_dir / f"mask_{idx}.png"
-        save_array_to_img(mask, mask_p)
-        # images.put(idx, mask_p) #add cleanup
-        image_paths.append(f"mask_{idx}.png")
+        mask_preview_p = out_dir / f"{small_prefix}mask_{idx}.png"
+        mask_dilated_p = out_dir / f"{dilated_prefix}mask_{idx}.png"
 
-    response = jsonify({'message': 'Image processed successfully', 'masks': image_paths})
+        save_array_to_img(mask, mask_p)
+        save_array_to_img(cv2.resize(mask, None, fx=0.3, fy=0.3), mask_preview_p)
+        save_array_to_img(dilate_mask(mask, dilate_seize), mask_dilated_p)
+        # images.put(idx, mask_p) #add cleanup
+        image_filenames.append(f"mask_{idx}.png")
+
+    response = jsonify({'message': 'Image processed successfully', 'masks': image_filenames})
     return response, 200
 
 @app.route('/get-mask', methods=['GET'])
 def get_mask():
     mask_file_value = request.args['mask_file']
+    mask_file_value = small_prefix + mask_file_value
     with open(out_dir / mask_file_value, 'rb') as f:
         image_file = f.read()
     
@@ -96,6 +102,6 @@ def choose_mask():
 
 if __name__ == '__main__':
     print("Loading SAM model...")
-    samPredictor = preload_sam()
+    sam_predictor = preload_sam()
     print("Preloaded SAM model") 
     app.run(debug=True, host='localhost', port=5000)
