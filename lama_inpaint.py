@@ -16,9 +16,9 @@ os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lama"))
-from saicinpainting.evaluation.utils import move_to_device
-from saicinpainting.training.trainers import load_checkpoint
-from saicinpainting.evaluation.data import pad_tensor_to_modulo
+from lama.saicinpainting.evaluation.utils import move_to_device
+from lama.saicinpainting.training.trainers import load_checkpoint
+from lama.saicinpainting.evaluation.data import pad_tensor_to_modulo
 
 from utils import load_img_to_array, save_array_to_img
 
@@ -29,6 +29,7 @@ def inpaint_img_with_lama(
         mask: np.ndarray,
         config_p: str,
         ckpt_p: str,
+        model: torch.nn.Module,
         mod=8,
         device="cuda"
 ):
@@ -38,25 +39,25 @@ def inpaint_img_with_lama(
     img = torch.from_numpy(img).float().div(255.)
     mask = torch.from_numpy(mask).float()
     predict_config = OmegaConf.load(config_p)
-    predict_config.model.path = ckpt_p
-    # device = torch.device(predict_config.device)
-    device = torch.device(device)
+    # predict_config.model.path = ckpt_p
+    # # device = torch.device(predict_config.device)
+    # device = torch.device(device)
 
-    train_config_path = os.path.join(
-        predict_config.model.path, 'config.yaml')
+    # train_config_path = os.path.join(
+    #     predict_config.model.path, 'config.yaml')
 
-    with open(train_config_path, 'r') as f:
-        train_config = OmegaConf.create(yaml.safe_load(f))
+    # with open(train_config_path, 'r') as f:
+    #     train_config = OmegaConf.create(yaml.safe_load(f))
 
-    train_config.training_model.predict_only = True
-    train_config.visualizer.kind = 'noop'
+    # train_config.training_model.predict_only = True
+    # train_config.visualizer.kind = 'noop'
 
-    checkpoint_path = os.path.join(
-        predict_config.model.path, 'models',
-        predict_config.model.checkpoint
-    )
-    model = load_checkpoint(
-        train_config, checkpoint_path, strict=False, map_location='cpu')
+    # checkpoint_path = os.path.join(
+    #     predict_config.model.path, 'models',
+    #     predict_config.model.checkpoint
+    # )
+    # model = load_checkpoint(
+    #     train_config, checkpoint_path, strict=False, map_location='cpu')
     model.freeze()
     if not predict_config.get('refine', False):
         model.to(device)

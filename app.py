@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from resource_management import preload_sam, predict_sam
+from resource_management import preload_sam, predict_sam, preload_lama
 from utils import save_array_to_img, load_img_to_array, dilate_mask
 import time
 from PIL import Image
@@ -12,6 +12,7 @@ import cv2
 app = Flask(__name__)
 images = {}
 sam_predictor = None
+lama_inpainter = None
 small_prefix = "small_"
 dilated_prefix = "dilated_"
 
@@ -47,7 +48,7 @@ def post_point_sam():
     latency = (end_time - start_time) 
     print("Segmentation latency: %.5f seconds" % latency)
 
-    dilate_seize = 15
+    dilate_size = 35
     for idx, mask in enumerate(masks):
         mask_p = out_dir / f"mask_{idx}.png"
         mask_preview_p = out_dir / f"{small_prefix}mask_{idx}.png"
@@ -55,7 +56,7 @@ def post_point_sam():
 
         save_array_to_img(mask, mask_p)
         save_array_to_img(cv2.resize(mask, None, fx=0.3, fy=0.3), mask_preview_p)
-        save_array_to_img(dilate_mask(mask, dilate_seize), mask_dilated_p)
+        save_array_to_img(dilate_mask(mask, dilate_size), mask_dilated_p)
         # images.put(idx, mask_p) #add cleanup
         image_filenames.append(f"mask_{idx}.png")
 
@@ -74,21 +75,17 @@ def get_mask():
 @app.route('/choose-mask', methods=['GET'])
 def choose_mask():
     mask_name = request.args['mask_file']
+    mask_name = dilated_prefix + mask_name
     mask_path = out_dir / mask_name
 
     mask = load_img_to_array(mask_path)
     mask = mask.astype(np.uint8) * 255
-    
-    dilate_size = request.args.get('dilate')
-    if dilate_size is not None:
-        print(f"Starting dilation of {mask_name}")
-        mask = dilate_mask(mask, int(dilate_size))
 
     start_time = time.perf_counter()
     print(f"Starting inpainting of {mask_name}")
     image = load_img_to_array(out_dir / image_path)
     img_inpainted_p = out_dir / f"inpainted_with_{Path(mask_path).name}"
-    img_inpainted = inpaint_img_with_lama(image, mask, lama_config, lama_ckpt, device="cpu")
+    img_inpainted = inpaint_img_with_lama(image, mask, lama_config, lama_ckpt, lama_inpainter, device="cpu")
     save_array_to_img(img_inpainted, img_inpainted_p)
 
     end_time = time.perf_counter()
@@ -104,4 +101,9 @@ if __name__ == '__main__':
     print("Loading SAM model...")
     sam_predictor = preload_sam()
     print("Preloaded SAM model") 
+
+    print("Loading LaMa model...")
+    lama_inpainter = preload_lama(lama_config, lama_ckpt, device="cpu")
+    print("Preloaded LaMa model") 
+
     app.run(debug=True, host='localhost', port=5000)
